@@ -1,0 +1,22 @@
+services:
+  flight-a-day:
+    build: .
+    image: flight-a-day:local
+    restart: unless-stopped
+    init: true
+    read_only: true
+    stop_grace_period: 120s
+    environment:
+      FLIGHT_DATA_DIR: /data
+      FLIGHT_SOURCE: ${FLIGHT_SOURCE:-synthetic}
+      FLIGHT_FIXTURE_DIR: /fixtures/generated
+      FLIGHT_RUN_TIME: ${FLIGHT_RUN_TIME:-04:00}
+      FLIGHT_START_DATE: ${FLIGHT_START_DATE:-}
+    volumes:
+      - flight-data:/data
+      - ./fixtures:/fixtures:ro
+    tmpfs:
+      - /tmp
+
+volumes:
+  flight-data:

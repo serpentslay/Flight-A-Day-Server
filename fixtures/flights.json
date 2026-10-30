@@ -1,0 +1,181 @@
+{
+  "date": "2026-10-29",
+  "flights": [
+    {
+      "provider": "fixture",
+      "provider_flight_id": "global-001",
+      "date": "2026-10-29",
+      "callsign": "EXAMPLE1",
+      "aircraft_type": "Boeing 747-8F",
+      "identification": {
+        "flight_number": "DF001",
+        "airline": "DEMO CARGO",
+        "registration": "N747EX",
+        "status": "ARRIVED"
+      },
+      "origin": {
+        "code": "ANC",
+        "name": "Ted Stevens Anchorage International Airport",
+        "latitude": 61.1743,
+        "longitude": -149.9985
+      },
+      "destination": {
+        "code": "FRA",
+        "name": "Frankfurt Airport",
+        "latitude": 50.0379,
+        "longitude": 8.5622
+      },
+      "distance_km": 7510,
+      "timings": {
+        "scheduled_departure_utc": "07:00",
+        "actual_departure_utc": "07:15",
+        "scheduled_arrival_utc": "15:35",
+        "actual_arrival_utc": "16:02",
+        "duration_minutes": 527,
+        "arrival_delay_minutes": 27
+      },
+      "performance": {
+        "cruise_altitude_ft": 40000,
+        "max_ground_speed_knots": 522,
+        "direct_distance_nm": 4055,
+        "track_distance_nm": 4210
+      },
+      "features": {
+        "aircraft_rarity": 96,
+        "route_rarity": 92,
+        "geographic_interest": 88,
+        "data_quality": 98
+      }
+    },
+    {
+      "provider": "fixture",
+      "provider_flight_id": "global-002",
+      "date": "2026-10-29",
+      "callsign": "EXAMPLE2",
+      "aircraft_type": "Airbus A320neo",
+      "origin": {
+        "code": "LHR",
+        "name": "London Heathrow Airport",
+        "latitude": 51.4700,
+        "longitude": -0.4543
+      },
+      "destination": {
+        "code": "CDG",
+        "name": "Charles de Gaulle Airport",
+        "latitude": 49.0097,
+        "longitude": 2.5479
+      },
+      "distance_km": 347,
+      "features": {
+        "aircraft_rarity": 12,
+        "route_rarity": 8,
+        "geographic_interest": 20,
+        "data_quality": 99
+      }
+    },
+    {
+      "provider": "fixture",
+      "provider_flight_id": "global-003",
+      "date": "2026-10-29",
+      "callsign": "EXAMPLE3",
+      "aircraft_type": "Boeing 787-9",
+      "origin": {
+        "code": "NRT",
+        "name": "Narita International Airport",
+        "latitude": 35.7720,
+        "longitude": 140.3929
+      },
+      "destination": {
+        "code": "SCL",
+        "name": "Arturo Merino Benitez International Airport",
+        "latitude": -33.3930,
+        "longitude": -70.7858
+      },
+      "distance_km": 17280,
+      "features": {
+        "aircraft_rarity": 45,
+        "route_rarity": 82,
+        "geographic_interest": 94,
+        "data_quality": 91
+      }
+    },
+    {
+      "provider": "fixture",
+      "provider_flight_id": "global-004",
+      "date": "2026-10-29",
+      "callsign": "EXAMPLE4",
+      "aircraft_type": "De Havilland Canada DHC-8-200",
+      "origin": {
+        "code": "GOH",
+        "name": "Nuuk Airport",
+        "latitude": 64.1909,
+        "longitude": -51.6781
+      },
+      "destination": {
+        "code": "KEF",
+        "name": "Keflavik International Airport",
+        "latitude": 63.9850,
+        "longitude": -22.6056
+      },
+      "distance_km": 1430,
+      "features": {
+        "aircraft_rarity": 88,
+        "route_rarity": 86,
+        "geographic_interest": 96,
+        "data_quality": 82
+      }
+    },
+    {
+      "provider": "fixture",
+      "provider_flight_id": "global-005",
+      "date": "2026-10-29",
+      "callsign": "EXAMPLE5",
+      "aircraft_type": "Airbus A350-900",
+      "origin": {
+        "code": "JNB",
+        "name": "O. R. Tambo International Airport",
+        "latitude": -26.1367,
+        "longitude": 28.2411
+      },
+      "destination": {
+        "code": "SYD",
+        "name": "Sydney Airport",
+        "latitude": -33.9399,
+        "longitude": 151.1753
+      },
+      "distance_km": 11040,
+      "features": {
+        "aircraft_rarity": 52,
+        "route_rarity": 76,
+        "geographic_interest": 90,
+        "data_quality": 94
+      }
+    },
+    {
+      "provider": "fixture",
+      "provider_flight_id": "invalid-ground-movement",
+      "date": "2026-10-29",
+      "callsign": "GROUND1",
+      "aircraft_type": "Unknown",
+      "origin": {
+        "code": "LAX",
+        "name": "Los Angeles International Airport",
+        "latitude": 33.9416,
+        "longitude": -118.4085
+      },
+      "destination": {
+        "code": "LAX",
+        "name": "Los Angeles International Airport",
+        "latitude": 33.9416,
+        "longitude": -118.4085
+      },
+      "distance_km": 4,
+      "features": {
+        "aircraft_rarity": 100,
+        "route_rarity": 100,
+        "geographic_interest": 100,
+        "data_quality": 5
+      }
+    }
+  ]
+}

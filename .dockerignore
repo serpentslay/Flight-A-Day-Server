@@ -1,0 +1,7 @@
+.git
+.idea
+target
+data
+out
+fixtures/generated
+*.iml
