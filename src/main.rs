@@ -2,6 +2,7 @@ mod artifact;
 mod domain;
 mod pipeline;
 mod provider;
+mod publishing;
 mod scoring;
 mod service;
 mod storage;
@@ -19,7 +20,9 @@ const HELP: &str = "Flight A Day
 Usage:
   flight-a-day serve [--once]
   flight-a-day run-now [--date YYYY-MM-DD]
-  flight-a-day refresh-test [--date YYYY-MM-DD]
+  flight-a-day refresh-test [--date YYYY-MM-DD] [--publish]
+  flight-a-day publish [--date YYYY-MM-DD | --test]
+  flight-a-day publication-status
   flight-a-day health
   flight-a-day generate-test-data [--output DIR] [--days N] [--flights-per-day N]
   flight-a-day render-fixture [display options]
@@ -54,7 +57,7 @@ async fn run(args: Vec<String>) -> Result<(), String> {
     if args.first().is_some_and(|command| {
         matches!(
             command.as_str(),
-            "serve" | "run-now" | "refresh-test" | "health"
+            "serve" | "run-now" | "refresh-test" | "health" | "publish" | "publication-status"
         )
     }) {
         return service::run(&args).await;

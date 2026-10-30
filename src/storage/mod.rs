@@ -12,6 +12,8 @@ use sqlx::{
 
 use crate::domain::{FlightCandidate, SelectedFlight};
 
+mod publication;
+
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 static LEASE_COUNTER: AtomicU64 = AtomicU64::new(1);
 

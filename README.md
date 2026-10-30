@@ -2,7 +2,7 @@
 
 Rust pipeline selecting a daily flight and rendering a 480×800 portrait preview,
 800×480 controller framebuffer (48,000 bytes), and JSON manifest. Current data is
-synthetic; real providers and Cloudflare publication will come later.
+synthetic. Cloudflare R2 publishing is optional; real flight providers will come later.
 
 ## Homelab
 
@@ -71,8 +71,9 @@ Calls rotate through the valid candidates for the chosen date, wrapping after 47
 All test data is illustrative. Test images do not change daily selections or the
 scheduler cursor. Old test revisions are retained for debugging.
 
-These commands create local files; they do not yet upload or expose an HTTP
-endpoint. Copy the files into your existing ESP32 test hosting setup. For example:
+These commands create local files by default. Add `--publish` or enable publishing
+below to upload them to R2. There is no built-in HTTP server. To copy local files
+into your existing ESP32 test hosting setup:
 
 ```sh
 docker compose cp flight-a-day:/data/artifacts/test ./esp32-test
@@ -114,3 +115,123 @@ cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 See [fixtures/README.md](fixtures/README.md) for the saved dataset's assumptions.
+
+## Cloudflare R2 publishing
+
+Create an R2 bucket and a bucket-scoped Object Read & Write API token. Configure a
+public bucket URL: a custom domain for normal operation or the Cloudflare `r2.dev`
+development URL while testing. The S3 endpoint is used privately for uploads; it
+is different from the public download URL. No R2 credentials belong on the ESP32.
+See [Cloudflare S3 setup](https://developers.cloudflare.com/r2/get-started/s3/)
+and [public delivery](https://developers.cloudflare.com/r2/buckets/public-buckets/).
+
+Copy `.env.example` to `.env` for Compose. Put the credential values in host files
+`secrets/r2-access-key-id` and `secrets/r2-secret-access-key`; allow container UID
+10001 to read them. The directory and `.env` are ignored by Git and Docker build.
+Set the account endpoint, bucket and public URL in `.env`, then rebuild/recreate:
+
+```sh
+docker compose up --build -d
+docker compose exec flight-a-day flight-a-day refresh-test --publish
+docker compose exec flight-a-day flight-a-day publication-status
+```
+
+Shell environment variables are used for local Cargo commands; Cargo does not load
+`.env` automatically. Required R2 settings:
+
+| Variable | Meaning |
+| --- | --- |
+| `R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
+| `R2_BUCKET` | Bucket name |
+| `R2_PUBLIC_BASE_URL` | Public HTTPS bucket/custom-domain base URL |
+| `R2_ACCESS_KEY_ID_FILE` | Path to mounted access key file |
+| `R2_SECRET_ACCESS_KEY_FILE` | Path to mounted secret key file |
+| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | Alternative direct environment credentials |
+| `FLIGHT_PUBLISH_ENABLED` | `false` by default; `true` automatically publishes scheduled and manual refreshes |
+| `FLIGHT_PUBLISH_BACKEND` | `r2` (default) or `local` for offline testing |
+
+Nonempty `_FILE` settings take precedence over direct environment credentials.
+Credentials are read explicitly; the AWS machine credential chain is not used.
+HTTPS certificate verification remains enabled. The image includes CA certificates.
+
+Publication commands:
+
+```powershell
+cargo run -- refresh-test --publish
+cargo run -- publish --test
+cargo run -- publish --date 2026-10-29
+cargo run -- publication-status
+```
+
+`publish` uploads existing files without generating a new selection. With no
+arguments it uses the last local daily image. `publish --test` retries the last
+allocated test revision; if generation itself failed, run `refresh-test` again.
+The daily publish command holds the daily lock, so stop the scheduler first when
+running it separately in Compose (`docker compose stop flight-a-day`, then
+`docker compose run --rm flight-a-day publish --date 2026-10-29`). Start it again
+with `docker compose up -d`. Test publication can run alongside the scheduler.
+
+Objects are published as:
+
+```text
+daily/<date>/<image-id>/display.bin
+daily/<date>/<image-id>/preview.png
+daily/<date>/<image-id>/flight.json
+daily/latest.json
+test/<revision>/<image-id>/display.bin
+test/<revision>/<image-id>/preview.png
+test/<revision>/<image-id>/flight.json
+test/latest.json
+```
+
+Every bundle has a SHA-256 content identifier. Its three objects are uploaded and
+verified by remote HEAD length/checksum metadata before `latest.json` changes.
+The manifest contains `image_id`, absolute `binary_url`, `preview_url`, and
+`manifest_url`, plus display dimensions/encoding, byte length, and binary SHA-256.
+The ESP32 compares `image_id`, downloads `binary_url`, verifies 48,000 bytes and
+the SHA-256, then passes the native bitmap to the panel driver.
+
+Immutable bundles have `Cache-Control: public, max-age=31536000, immutable`;
+`daily/latest.json` and `test/latest.json` have `Cache-Control: no-store, max-age=0`.
+On your custom domain, configure a cache bypass rule for both latest manifests;
+do not use a rule that overrides these headers to cache the pointers. Device
+polls should also avoid caching the latest manifest. The cached bundle paths can
+be reused indefinitely because changed content gets a new image ID.
+
+Upload state, remote checksums and publication heads are persisted in SQLite via
+`0003_publications.sql`. Failed publication leaves the prior remote pointer in
+place when a bundle object fails. Transient transport, HTTP 408/429 and server
+errors retry up to three times with bounded delays; authorization errors fail
+immediately. Retrying HEAD-verifies completed objects and skips their uploads.
+A timeout when writing the final pointer can mean the write succeeded remotely;
+retry reconciles this safely. Historical daily/test publication never moves a
+newer channel pointer backwards. Remote checksum conflicts fail instead of
+overwriting an immutable object.
+
+When automatic publication is enabled, the scheduler advances its cursor only
+after rendering and publication succeed; upload failures surface in `health` and
+retry on the next scheduler check. Enabling publication after local-only runs also
+publishes the saved latest day on startup. `pipeline_runs` describes local render
+completion; use `publication-status` for upload state. Use one uploader/data
+volume per bucket namespace; the cross-process publication lock is local to that
+volume. Test revisions are retained without automatic deletion.
+
+### Offline publication test
+
+No Cloudflare account is required to exercise the publication workflow locally:
+
+```powershell
+$env:FLIGHT_DATA_DIR = 'data/publish-demo'
+$env:FLIGHT_PUBLISH_BACKEND = 'local'
+$env:R2_PUBLIC_BASE_URL = 'https://display.example.com'
+cargo run -- refresh-test --publish
+cargo run -- publish --test
+cargo run -- publication-status
+```
+
+Objects appear under `data/publish-demo/published`, with metadata sidecars.
+`FLIGHT_LOCAL_PUBLISH_DIR` can override that directory locally. This backend
+checks actual file hashes but does not start an HTTPS server; the example URLs
+are placeholders. Automated tests also exercise partial failures, retries,
+pointer ordering, channel independence, and signed SDK requests against a
+loopback mock S3 server with invented credentials.

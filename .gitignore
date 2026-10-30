@@ -2,3 +2,7 @@
 /out
 /data
 /fixtures/generated
+/.env
+/.env.*
+!/.env.example
+/secrets

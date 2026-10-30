@@ -5,3 +5,6 @@ data
 out
 fixtures/generated
 *.iml
+.env
+.env.*
+secrets

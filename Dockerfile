@@ -7,6 +7,8 @@ COPY fixtures/flights.json ./fixtures/flights.json
 RUN cargo build --locked --release
 
 FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get clean
 RUN groupadd --gid 10001 flight && useradd --uid 10001 --gid flight --no-create-home flight \
     && mkdir -p /data /app && chown flight:flight /data /app
 COPY --from=builder /build/target/release/Flight-A-Day /usr/local/bin/flight-a-day

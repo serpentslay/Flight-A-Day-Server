@@ -17,7 +17,7 @@ use crate::{
     artifact::{self, ArtifactPaths, DisplayProfile},
     pipeline,
     provider::{FixtureProvider, FlightProvider},
-    scoring,
+    publishing, scoring,
     storage::Storage,
 };
 
@@ -29,6 +29,7 @@ pub struct Config {
     run_time: NaiveTime,
     start: Option<NaiveDate>,
     poll_seconds: u64,
+    publish_enabled: bool,
 }
 
 impl Config {
@@ -61,6 +62,7 @@ impl Config {
             run_time,
             start,
             poll_seconds,
+            publish_enabled: publishing::enabled()?,
         })
     }
 
@@ -102,7 +104,7 @@ pub async fn run(args: &[String]) -> Result<(), String> {
         .any(|arg| matches!(arg.as_str(), "--help" | "-h"))
     {
         println!(
-            "serve [--once]\nrun-now [--date YYYY-MM-DD]\nrefresh-test [--date YYYY-MM-DD]\nhealth\nConfiguration: FLIGHT_DATA_DIR, FLIGHT_OUTPUT_DIR, FLIGHT_SOURCE=synthetic|fixtures, FLIGHT_FIXTURE_DIR, FLIGHT_RUN_TIME=04:00 (UTC), FLIGHT_START_DATE, FLIGHT_POLL_SECONDS=60.\nrefresh-test cycles synthetic candidates and writes test/latest.json immediately."
+            "serve [--once]\nrun-now [--date YYYY-MM-DD]\nrefresh-test [--date YYYY-MM-DD] [--publish]\npublish [--date YYYY-MM-DD | --test]\npublication-status\nhealth\nConfiguration: FLIGHT_DATA_DIR, FLIGHT_OUTPUT_DIR, FLIGHT_SOURCE=synthetic|fixtures, FLIGHT_FIXTURE_DIR, FLIGHT_RUN_TIME=04:00 (UTC), FLIGHT_START_DATE, FLIGHT_POLL_SECONDS=60, FLIGHT_PUBLISH_ENABLED=false.\nR2: R2_ENDPOINT, R2_BUCKET, R2_PUBLIC_BASE_URL, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY (credentials also support _FILE).\nOffline publishing: FLIGHT_PUBLISH_BACKEND=local."
         );
         return Ok(());
     }
@@ -114,14 +116,68 @@ pub async fn run(args: &[String]) -> Result<(), String> {
             serve(&config, args.len() == 2).await
         }
         "health" if args.len() == 1 => health(&config),
+        "publication-status" if args.len() == 1 => {
+            let storage = config.storage().await?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &storage
+                        .publication_status()
+                        .await
+                        .map_err(|e| e.to_string())?
+                )
+                .map_err(|e| e.to_string())?
+            );
+            Ok(())
+        }
+        "publish" => {
+            let test = args.get(1).is_some_and(|arg| arg == "--test") && args.len() == 2;
+            let _lock = lock(
+                &config
+                    .data
+                    .join(if test { "test.lock" } else { "daily.lock" }),
+            )?;
+            let storage = config.storage().await?;
+            if test {
+                let sequence = storage
+                    .state("test_sequence")
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .ok_or("no test image exists; run refresh-test first")?;
+                let revision = format!(
+                    "{:06}",
+                    sequence
+                        .parse::<u64>()
+                        .map_err(|_| "invalid test sequence")?
+                );
+                publish_channel(&config, &storage, "test", &revision).await
+            } else {
+                let date = match &args[1..] {
+                    [flag, value] if flag == "--date" => parse_date(value)?.to_string(),
+                    [] => storage
+                        .state("latest_daily")
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .ok_or("no daily image exists; run run-now first")?,
+                    _ => return Err("publish expects --date YYYY-MM-DD or --test".into()),
+                };
+                publish_channel(&config, &storage, "daily", &date).await
+            }
+        }
         "run-now" | "refresh-test" => {
-            let date = match &args[1..] {
+            let publish = args[0] == "refresh-test" && args.iter().any(|arg| arg == "--publish");
+            let remaining: Vec<_> = args[1..]
+                .iter()
+                .filter(|arg| !(publish && arg.as_str() == "--publish"))
+                .cloned()
+                .collect();
+            let date = match &remaining[..] {
                 [] => Utc::now().date_naive().pred_opt().ok_or("date overflow")?,
                 [flag, date] if flag == "--date" => parse_date(date)?,
                 _ => return Err("expected only --date YYYY-MM-DD".into()),
             };
             if args[0] == "refresh-test" {
-                refresh_test(&config, date).await
+                refresh_test(&config, date, publish).await
             } else {
                 let _lock = lock(&config.data.join("daily.lock"))?;
                 let storage = config.storage().await?;
@@ -176,6 +232,9 @@ async fn daily(config: &Config, storage: &Storage, date: NaiveDate) -> Result<()
         DisplayProfile::default(),
     )
     .await?;
+    if config.publish_enabled {
+        publish_channel(config, storage, "daily", &date.to_string()).await?;
+    }
     // Backfills must not move the latest pointer backwards.
     let previous = storage
         .state("latest_daily")
@@ -200,7 +259,7 @@ async fn daily(config: &Config, storage: &Storage, date: NaiveDate) -> Result<()
     Ok(())
 }
 
-async fn refresh_test(config: &Config, date: NaiveDate) -> Result<(), String> {
+async fn refresh_test(config: &Config, date: NaiveDate, publish: bool) -> Result<(), String> {
     let _lock = lock(&config.data.join("test.lock"))?;
     let storage = config.storage().await?;
     let sequence = storage
@@ -233,8 +292,25 @@ async fn refresh_test(config: &Config, date: NaiveDate) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
     publish_pointer(&root, &revision)?;
+    if publish || config.publish_enabled {
+        publish_channel(config, &storage, "test", &revision).await?;
+    }
     print_test_paths(&paths, &root);
     Ok(())
+}
+
+async fn publish_channel(
+    config: &Config,
+    storage: &Storage,
+    channel: &str,
+    revision: &str,
+) -> Result<(), String> {
+    let directory = if channel == "test" {
+        config.output.join("test").join(revision)
+    } else {
+        config.output.join(revision)
+    };
+    publishing::publish_from_env(storage, &directory, channel, revision, &config.data).await
 }
 
 fn print_test_paths(paths: &ArtifactPaths, root: &Path) {
@@ -282,6 +358,7 @@ async fn serve(config: &Config, once: bool) -> Result<(), String> {
         "scheduler started source={} run_time={} UTC",
         config.source, config.run_time
     );
+    let mut publication_checked = None;
     loop {
         let target = due_date(Utc::now(), config.run_time);
         let mut next = cursor
@@ -301,7 +378,25 @@ async fn serve(config: &Config, once: bool) -> Result<(), String> {
                 .await
                 .map_err(|e| e.to_string())?;
             cursor = Some(next);
+            if config.publish_enabled {
+                publication_checked = cursor;
+            }
             next = next.succ_opt().ok_or("date overflow")?;
+        }
+        // Enabling publishing after local-only runs must publish the saved latest day too.
+        if config.publish_enabled
+            && publication_checked != cursor
+            && last_error.is_none()
+            && !stopping.load(Ordering::SeqCst)
+            && let Some(date) = cursor
+        {
+            match publish_channel(config, &storage, "daily", &date.to_string()).await {
+                Ok(()) => publication_checked = cursor,
+                Err(error) => {
+                    eprintln!("publication date={date} error={error}");
+                    last_error = Some(error);
+                }
+            }
         }
         write_health(config, target, cursor, last_error.clone())?;
         if once || stopping.load(Ordering::SeqCst) {
@@ -403,6 +498,7 @@ mod tests {
             run_time: NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
             start: Some(first),
             poll_seconds: 1,
+            publish_enabled: false,
         };
         fs::create_dir_all(&config.fixtures).unwrap();
         let mut fixture: serde_json::Value =
@@ -440,9 +536,9 @@ mod tests {
             target.to_string()
         );
 
-        refresh_test(&config, target).await.unwrap();
+        refresh_test(&config, target, false).await.unwrap();
         let first_binary = fs::read(config.output.join("test/000001/display.bin")).unwrap();
-        refresh_test(&config, target).await.unwrap();
+        refresh_test(&config, target, false).await.unwrap();
         let second_binary = fs::read(config.output.join("test/000002/display.bin")).unwrap();
         assert_eq!(first_binary.len(), 48_000);
         assert_ne!(first_binary, second_binary);
